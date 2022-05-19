@@ -1,5 +1,6 @@
 # import the necessary packages
 from itertools import count
+from tracemalloc import start
 from imutils.video import VideoStream
 import face_recognition
 import argparse
@@ -42,13 +43,16 @@ def start_recon():
     time.sleep(2.0)
     # loop over frames from the video file stream
     count = 0
+    namelist = []
+    for name in data['names']:
+        if name not in namelist:
+            namelist.append(name)
+    print(namelist)
 
     def hisEqulColor2(img):
         ycrcb = cv2.cvtColor(img, cv2.COLOR_BGR2YCR_CB)
         channels = cv2.split(ycrcb)
 
-        # 以下代码详细注释见官网：
-        # https://docs.opencv.org/4.1.0/d5/daf/tutorial_py_histogram_equalization.html
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         clahe.apply(channels[0], channels[0])
 
@@ -127,9 +131,9 @@ def start_recon():
         cv2.imshow("Frame", frame)
         key = cv2.waitKey(1) & 0xFF
 
-        for i in range(names.count("Unknown")):
-            if("Unknown" in names):
-                names.remove("Unknown")
+        # for i in range(names.count("Unknown")):
+        #     if("Unknown" in names):
+        #         names.remove("Unknown")
     # if the `q` key was pressed, break from the loop
         if key == ord("q"):
             cv2.destroyAllWindows()
@@ -137,21 +141,27 @@ def start_recon():
             return names
         if len(names) > 0:
             count += 1
-            print(names, count)
-            if count >= 10:
-                t = time.localtime()
-                cv2.putText(frame, f'{time.strftime("%m/%d/%Y, %H:%M:%S", t)}', (0, 450),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                p = os.path.sep.join([args["output"], "{}.png".format(
-                    str(time.strftime("%Y%m%d_%H%M%S", t)).zfill(1))])
-                cv2.imwrite(p, frame)
-                cv2.destroyAllWindows()
-                vs.stop()
-                return names
+            i = set.intersection(set(names), set(namelist))
+            if len(i) > 0:
+                print('duplicates found')
+                print(names, count)
+
+                if count >= 10:
+                    t = time.localtime()
+                    cv2.putText(frame, f'{time.strftime("%m/%d/%Y, %H:%M:%S", t)}', (0, 450),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                    p = os.path.sep.join([args["output"], "{}.png".format(
+                        str(time.strftime("%Y%m%d_%H%M%S", t)).zfill(1))])
+                    cv2.imwrite(p, frame)
+                    cv2.destroyAllWindows()
+                    vs.stop()
+                    return names
         else:
             count = 0
-        # do a bit of cleanup
 
+
+        # do a bit of cleanup
+start_recon()
 # check to see if the video writer point needs to be released
 # if writer is not None:
 #     writer.release()
