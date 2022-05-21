@@ -10,15 +10,28 @@ import time
 import cv2
 import sys
 import os
+from PIL import Image, ImageDraw, ImageFont
+import line_notify
+import numpy as np
 
 
 # construct the argument parser and parse the arguments
 encoding_path = os.path.join(os.path.dirname(__file__), "encodings.pickle")
 output_path = os.path.join(os.path.dirname(__file__), "output")
+
 print(encoding_path)
 # sys.path.append(os.getcwd())
 # print(sys.path)
-last_name = None
+
+
+def cv2ImgAddText(img, text, left, top, textColor=(0, 255, 0), textSize=20):
+    if (isinstance(img, np.ndarray)):  # 判断是否OpenCV图片类型
+        img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(img)
+    fontText = ImageFont.truetype(
+        "simsun.ttc", textSize, encoding="utf-8")
+    draw.text((left, top), text, textColor, font=fontText)
+    return cv2.cvtColor(np.asarray(img), cv2.COLOR_RGB2BGR)
 
 
 def start_recon():
@@ -29,7 +42,7 @@ def start_recon():
                     help="path to output video", default=output_path)
     ap.add_argument("-y", "--display", type=int, default=1,
                     help="whether or not to display output frame to screen")
-    ap.add_argument("-d", "--detection-method", type=str, default="hog",
+    ap.add_argument("-d", "--detection-method", type=str, default="cnn",
                     help="face detection model to use: either `hog` or `cnn`")
     args = vars(ap.parse_args())
     # load the known faces and embeddings
@@ -43,6 +56,9 @@ def start_recon():
     time.sleep(2.0)
     # loop over frames from the video file stream
     count = 0
+    retry_count = 0
+    retry_thresh = 3
+    last_name = 'Not Same'
     namelist = []
     for name in data['names']:
         if name not in namelist:
@@ -128,6 +144,49 @@ def start_recon():
         fps = 1 / totalTime
         # cv2.putText(frame, f'FPS: {int(fps)}', (20, 450),
         #             cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 2)
+        if len(names) > 0:
+            i = set.intersection(set(names), set(namelist))
+            if len(i) > 0:
+                print('duplicates found')
+                print(count)
+                if count == 1:
+                    last_name = names[0]
+                if (count > 1) & (last_name != names[0]):
+                    last_name = 'Not Same'
+                    count = 0
+            if (count > 1) & (last_name != names[0]):
+                last_name = 'Not Same'
+            print(names, count, last_name)
+            count += 1
+
+            if (count >= 10) & (last_name == names[0]):
+                cv2.destroyAllWindows()
+                vs.stop()
+                return names
+            elif (count >= 10) & (last_name == 'Not Same'):
+                print('請重試')
+                retry_count += 1
+                count = 0
+
+        else:
+            count = 0
+        if retry_count == retry_thresh:
+            t = time.localtime()
+            cv2.putText(frame, f'{time.strftime("%m/%d/%Y, %H:%M:%S", t)}', (0, 450),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            p = os.path.sep.join([args["output"], "{}.png".format(
+                str(time.strftime("%Y%m%d_%H%M%S", t)).zfill(1))])
+            p = os.path.normpath(p)
+            cv2.imwrite(p, frame)
+            print(line_notify.lineNotifyMessage_Pic("非指定駕駛者", p))
+            # print(line_notify.lineNotifyMessage("非指定駕駛者"))
+            retry_count += 1
+            print('已截圖上傳')
+        if retry_count >= retry_thresh:
+            cv2.putText(frame, f'{time.strftime("%m/%d/%Y, %H:%M:%S", t)}', (0, 450),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            frame = cv2ImgAddText(frame, "已截圖上傳至LINE通報", 0, 0,
+                                  textColor=(255, 0, 0), textSize=30)
         cv2.imshow("Frame", frame)
         key = cv2.waitKey(1) & 0xFF
 
@@ -139,29 +198,8 @@ def start_recon():
             cv2.destroyAllWindows()
             vs.stop()
             return names
-        if len(names) > 0:
-            count += 1
-            i = set.intersection(set(names), set(namelist))
-            if len(i) > 0:
-                print('duplicates found')
-                print(names, count)
 
-                if count >= 10:
-                    t = time.localtime()
-                    cv2.putText(frame, f'{time.strftime("%m/%d/%Y, %H:%M:%S", t)}', (0, 450),
-                                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                    p = os.path.sep.join([args["output"], "{}.png".format(
-                        str(time.strftime("%Y%m%d_%H%M%S", t)).zfill(1))])
-                    cv2.imwrite(p, frame)
-                    cv2.destroyAllWindows()
-                    vs.stop()
-                    return names
-        else:
-            count = 0
-
-
-        # do a bit of cleanup
-start_recon()
+            # do a bit of cleanup
 # check to see if the video writer point needs to be released
 # if writer is not None:
 #     writer.release()
